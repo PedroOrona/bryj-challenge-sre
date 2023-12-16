@@ -1,0 +1,10 @@
+{
+    "metrics":[
+        {
+            "name": "cpu",
+            "keys": ["usage", "total"],
+            "threshold": 1,
+            "window": 3
+        }
+    ]
+}
