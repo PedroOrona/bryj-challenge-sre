@@ -1,7 +1,8 @@
 {
     "metrics":[
         {
-            "name": "cpu",
+            "name": "cpu_usage_total",
+            "area": "cpu",
             "keys": ["usage", "total"],
             "threshold": 1,
             "window": 3
