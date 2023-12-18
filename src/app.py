@@ -22,6 +22,8 @@ CONTAINER_NAME = "redis"
 
 DEFAULT_WINDOW = 4
 MINUTE_PERIOD = 2
+MAX_METRICS = 10
+
 asg_client = boto3.client("autoscaling", region_name=AWS_DEFAULT_REGION)
 s3_client = boto3.client("s3", region_name=AWS_DEFAULT_REGION)
 
@@ -112,8 +114,13 @@ def collect_metrics(container_info: dict, metrics: list[dict], alarm: dict):
     For each metric defined in the metrics.json, collect its values
     from the cAdvisor collected container information
     """
-    # TO-DO: Make a condition to not allow a very big number of metrics
-    with concurrent.futures.ProcessPoolExecutor(max_workers=len(metrics)) as executor:
+    # Condition to not allow a very big number of metrics. This can be changed by
+    # simply updating MAX_METRICS global variable
+    max_workers = len(metrics)
+    if max_workers > MAX_METRICS:
+        max_workers = MAX_METRICS
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         results = [
             executor.submit(check_value, container_info, metric) for metric in metrics
         ]
