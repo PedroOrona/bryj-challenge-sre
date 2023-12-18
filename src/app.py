@@ -14,11 +14,16 @@ from urllib.request import urlopen
 
 import boto3
 
+AWS_DEFAULT_REGION = "eu-west-1"
+ASG_NAME = "bryj-app"
+
 VALUES_FILE_NAME = "metric_values.json"
 CONTAINER_NAME = "redis"
 
 DEFAULT_WINDOW = 4
 MINUTE_PERIOD = 2
+asg_client = boto3.client("autoscaling", region_name=AWS_DEFAULT_REGION)
+s3_client = boto3.client("s3", region_name=AWS_DEFAULT_REGION)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +31,30 @@ logging.basicConfig(level=logging.INFO)
 def alarm_action(metric_name: str, upload: bool = False):
     """Execute an specific action depending of the alarm triggered"""
     logging.info("Alarm triggered for metric %s", metric_name)
+
+    # Add more conditions and actions for specific metric names
+    if metric_name == "cpu_usage_total":
+        try:
+            response = asg_client.describe_auto_scaling_groups(
+                AutoScalingGroupNames=[ASG_NAME]
+            )
+            current_desired = response.get("AutoScalingGroups")[0].get(
+                "DesiredCapacity"
+            )
+            # TODO: Increase or reduce desired capacity depending on the alarm condition
+            desired_capacity = current_desired + 1
+            response = asg_client.set_desired_capacity(
+                AutoScalingGroupName=ASG_NAME,
+                DesiredCapacity=desired_capacity,
+                HonorCooldown=True,
+            )
+            logging.info(
+                "Auto Scaling Group %s updated. New desired capacity set to %s",
+                ASG_NAME,
+                desired_capacity,
+            )
+        except Exception as e:
+            logging.error("Failed to scale ASG %s. Cause: %s", ASG_NAME, e)
 
 
 def check_value(container_info: dict, metric: dict):
