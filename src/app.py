@@ -36,6 +36,7 @@ from metrics import TargetMetric, MetricInfo, MetricConfig
 load_dotenv()
 
 AWS_DEFAULT_REGION = os.getenv("AWS_DEFAULT_REGION")
+AWS_CONFIG_PROFILE_NAME = os.getenv("AWS_CONFIG_PROFILE_NAME")
 AUTO_SCALING_GROUP_NAME = os.getenv("AUTO_SCALING_GROUP_NAME")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 
@@ -49,8 +50,9 @@ MAX_METRICS = int(os.getenv("MAX_METRICS"))
 MINUTE_PERIOD = float(os.getenv("MINUTE_PERIOD"))
 
 # TODO: Define boto3 Session
-asg_client = boto3.client("autoscaling", region_name=AWS_DEFAULT_REGION)
-s3_client = boto3.client("s3", region_name=AWS_DEFAULT_REGION)
+session = boto3.Session(profile_name=AWS_CONFIG_PROFILE_NAME)
+asg_client = session.client("autoscaling", region_name=AWS_DEFAULT_REGION)
+s3_client = session.client("s3", region_name=AWS_DEFAULT_REGION)
 
 logging.basicConfig(level=logging.INFO)
 
