@@ -28,6 +28,7 @@ class MetricConfig:
 
     # TODO: Validate that 'compare' has a valide value
     name: str
+    area: str
     keys: list
     threshold: Any
     compare: str
@@ -45,7 +46,8 @@ class TargetMetric:
         self.metrics = [
             MetricConfig(
                 name="cpu_usage_total",
-                keys=["cpu", "usage", "total"],
+                area="cpu",
+                keys=["usage", "total"],
                 threshold=500,
                 compare="bigger",
                 window=3,

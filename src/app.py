@@ -10,8 +10,8 @@ The metric values will be inside the 'stats' key.
 
 2. Check the json key names needed for this metric to get to the actual value that will be used
 for checking the threshold. So, for example, to get get the CPU Usage Total, you can see in the
-stats field that you have to access, 'cpu', 'usage' and 'total', so you should define all these
-3 keys in the 'keys' field for the MetricConfig.
+stats field that you have to access, 'cpu', 'usage' and 'total', so you should define 'cpu as the
+area and all the rest ('usage' and 'total') in the 'keys' attribute for the MetricConfig.
 
 For more information about how to run the application, read the repository README.
 """
@@ -193,9 +193,9 @@ def check_value(container_info: dict, metric: MetricConfig):
             # Always get the most recent metrics status
             # TODO: Check if value collected is a new one
             stats = info.get("stats")[-1]
-            metric_value = stats.get(metric.area)
 
             # Not elegant (probably there's a better way of doing it)
+            metric_value = stats.get(metric.area)
             for key in metric.keys:
                 metric_value = metric_value.get(key)
 
