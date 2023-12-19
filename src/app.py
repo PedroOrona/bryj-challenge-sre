@@ -1,8 +1,19 @@
 """
-Parse defined metrics on redis application. To populate the metrics.json, get the desidered
-metric from the cAdvisor stats field (you can do this by checking json structure that the
-cAdivsor returns). You should check the json key names needed for this metric to get to the
-actual value that will be used for checking the threshold.
+Application wich parses metrics, trigger alarms and also make specific actions depending on the
+target metric.
+
+For specific metrics, please update the TargetMetric data class. Instructions are the following:
+
+1. Check the json structure for the desidered metric in the cAdvisor response (you can collect the
+URL response by acessing the CADVISOR_URL environment or running this application in Debug mode).
+The metric values will be inside the 'stats' key.
+
+2. Check the json key names needed for this metric to get to the actual value that will be used
+for checking the threshold. So, for example, to get get the CPU Usage Total, you can see in the
+stats field that you have to access, 'cpu', 'usage' and 'total', so you should define all these
+3 keys in the 'keys' field for the MetricConfig.
+
+For more information about how to run the application, read the repository README.
 """
 import argparse
 import asyncio
@@ -35,7 +46,6 @@ METRICS_CONFIG_FILENAME = os.getenv("METRICS_CONFIG_FILENAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")
 
 MAX_METRICS = int(os.getenv("MAX_METRICS"))
-DEFAULT_WINDOW = int(os.getenv("DEFAULT_WINDOW"))
 MINUTE_PERIOD = float(os.getenv("MINUTE_PERIOD"))
 
 # TODO: Define boto3 Session
@@ -55,6 +65,12 @@ args = parser.parse_args()
 
 
 async def send_message_via_webhook(metric_name: str, metric_value: int):
+    """
+    Execute an specific action depending of the alarm triggered.
+
+    Parameters:
+        metric_name (str): Metric name that will appear in the alarm message text.
+        metric_value (int): Metric name that will appear in the alarm message text.
     """
     try:
         webhook = AsyncWebhookClient(SLACK_WEBHOOK_URL)
@@ -80,6 +96,19 @@ async def send_message_via_webhook(metric_name: str, metric_value: int):
 
 def alarm_action(metric: MetricConfig, metric_info: MetricInfo):
     """
+    Execute an specific action depending of the alarm triggered.
+
+    Parameters:
+        metric (MetricConfig):
+            Dictionary containing information about how to collect and evaluate an specific metric.
+        metric_info (dict):
+            MetricInfo object with information about collected metric.
+
+    Returns:
+        response (Any): Response got from applying the requested action.
+    """
+
+    logging.info("Alarm triggered for metric %s", metric.name)
 
     if args.upload:
         try:
@@ -136,6 +165,22 @@ def alarm_action(metric: MetricConfig, metric_info: MetricInfo):
 
 def check_value(container_info: dict, metric: MetricConfig):
     """
+    Parse cAdvisor response for requested container and return
+    metric informations like current value and timestamp.
+    Also checks if the metric alarm should be trigger.
+
+    Parameters:
+        container_info (dict):
+            Dictionary with information about requested container collected by cAdivsor.
+        metric (MetricConfig):
+            MetricConfig oject containing information about how to collect and evaluate an specific metric.
+
+    Returns:
+        metric (dict):
+            Dictionary containing information about how to collect and evaluate an specific metric.
+        metric_info (MetricInfo):
+            Object of MetricInfo data class containing information about the requested metric.
+    """
     metric_name = metric.name
     metric_threshold = metric.threshold
     metric_compare = metric.compare
@@ -146,6 +191,7 @@ def check_value(container_info: dict, metric: MetricConfig):
         info = list(container_info.values())[0]
         if CONTAINER_NAME in info.get("aliases"):
             # Always get the most recent metrics status
+            # TODO: Check if value collected is a new one
             stats = info.get("stats")[-1]
             metric_value = stats.get(metric.area)
 
@@ -177,12 +223,6 @@ def check_value(container_info: dict, metric: MetricConfig):
                     metric_name,
                 )
 
-            logging.info(
-                "Metric collected! %s: %s (%s)",
-                metric_name,
-                metric_info["value"],
-                metric_info["timestamp"],
-            )
         else:
             logging.info(
                 "cAdvisor doesn't have information for %s container.", CONTAINER_NAME
@@ -201,7 +241,23 @@ def collect_metrics(
 ):
     """
     For each metric defined in the metrics.json, collect its values
-    from the cAdvisor collected container information
+    using information provided by cAdvisor, save them into the
+    METRIC_VALUES_FILENAME json file and returns the necessary
+    information about the alarm status. It will look for the
+    container specified in the CONTAINER_NAME environment variable.
+
+    Parameters:
+        container_info (dict):
+            Dictionary with information about requested container collected by cAdivsor.
+        metrics (list[MetricConfig]):
+            List of metric configurations defined in the TargetMetric data class.
+        alarm (dict):
+            Dictionary containing information about metric alarm. Keys are 'status' and 'period'.
+            Default value is None.
+
+    Returns:
+        alarm (dict):
+            Dictionary containing information about metric alarm. Keys are 'status' and 'period'.
     """
     max_workers = min(len(metrics), MAX_METRICS)
 
