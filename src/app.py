@@ -14,10 +14,13 @@ import json
 import logging
 
 from urllib.request import urlopen
+from dataclasses import asdict
 from dotenv import load_dotenv
 from slack_sdk.webhook.async_client import AsyncWebhookClient
 
 import boto3
+from metrics import TargetMetric, MetricInfo, MetricConfig
+
 
 load_dotenv()
 
@@ -51,9 +54,10 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-async def send_message_via_webhook(url: str, metric_name: str, metric_value: int):
+async def send_message_via_webhook(metric_name: str, metric_value: int):
+    """
     try:
-        webhook = AsyncWebhookClient(url)
+        webhook = AsyncWebhookClient(SLACK_WEBHOOK_URL)
         await webhook.send(
             blocks=[
                 {
@@ -74,9 +78,8 @@ async def send_message_via_webhook(url: str, metric_name: str, metric_value: int
         raise e
 
 
-def alarm_action(metric_name: str, metric_value: int, condition: str):
-    """Execute an specific action depending of the alarm triggered"""
-    logging.info("Alarm triggered for metric %s", metric_name)
+def alarm_action(metric: MetricConfig, metric_info: MetricInfo):
+    """
 
     if args.upload:
         try:
@@ -94,10 +97,10 @@ def alarm_action(metric_name: str, metric_value: int, condition: str):
             )
             raise e
 
-    asyncio.run(send_message_via_webhook(SLACK_WEBHOOK_URL, metric_name, metric_value))
+    asyncio.run(send_message_via_webhook(metric.name, metric_info.value))
 
-    # Add more conditions and actions for specific metric names
-    if metric_name == "cpu_usage_total":
+    # Add here more conditions and actions for specific metric names
+    if metric.name == "cpu_usage_total":
         try:
             response = asg_client.describe_auto_scaling_groups(
                 AutoScalingGroupNames=[AUTO_SCALING_GROUP_NAME]
@@ -106,7 +109,7 @@ def alarm_action(metric_name: str, metric_value: int, condition: str):
                 "DesiredCapacity"
             )
 
-            if condition == "bigger":
+            if metric.compare == "bigger":
                 desired_capacity = current_desired + 1
             elif current_desired != 0:
                 desired_capacity = current_desired - 1
@@ -131,11 +134,11 @@ def alarm_action(metric_name: str, metric_value: int, condition: str):
             return None
 
 
-def check_value(container_info: dict, metric: dict):
-    """TO-DO"""
-    metric_name = metric.get("name")
-    metric_threshold = metric.get("threshold")
-    metric_compare = metric.get("compare")
+def check_value(container_info: dict, metric: MetricConfig):
+    """
+    metric_name = metric.name
+    metric_threshold = metric.threshold
+    metric_compare = metric.compare
 
     logging.info("Collecting metric %s...", metric_name)
     metric_info = {}
@@ -144,22 +147,29 @@ def check_value(container_info: dict, metric: dict):
         if CONTAINER_NAME in info.get("aliases"):
             # Always get the most recent metrics status
             stats = info.get("stats")[-1]
-            metric_value = stats.get(metric.get("area"))
+            metric_value = stats.get(metric.area)
 
             # Not elegant (probably there's a better way of doing it)
-            for key in metric.get("keys"):
+            for key in metric.keys:
                 metric_value = metric_value.get(key)
 
-            metric_info["value"] = metric_value
-            metric_info["timestamp"] = stats.get("timestamp")
-            metric_info["alarm"] = False
+            metric_info = MetricInfo(
+                value=metric_value, timestamp=stats.get("timestamp")
+            )
+
+            logging.info(
+                "Metric collected! %s: %s (%s)",
+                metric_name,
+                metric_info.value,
+                metric_info.timestamp,
+            )
 
             if metric_compare == "bigger" and metric_value > metric_threshold:
-                metric_info["alarm"] = True
+                metric_info.set_alarm()
             elif metric_compare == "lower" and metric_value < metric_threshold:
-                metric_info["alarm"] = True
+                metric_info.set_alarm()
 
-            if metric_info["alarm"]:
+            if metric_info.alarm:
                 logging.info(
                     "Metric value %s than threshold (%s) for metric %s.",
                     metric_compare,
@@ -186,7 +196,9 @@ def check_value(container_info: dict, metric: dict):
         return None
 
 
-def collect_metrics(container_info: dict, metrics: list[dict], alarm: dict):
+def collect_metrics(
+    container_info: dict, metrics: list[MetricConfig], alarm: dict = None
+):
     """
     For each metric defined in the metrics.json, collect its values
     from the cAdvisor collected container information
@@ -200,8 +212,11 @@ def collect_metrics(container_info: dict, metrics: list[dict], alarm: dict):
 
         for future in concurrent.futures.as_completed(results):
             metric, metric_info = future.result()
-            metric_name = metric.get("name")
-            metric_alarm = metric_info.get("alarm")
+            metric_name = metric.name
+            metric_alarm = metric_info.alarm
+
+            if alarm is None:
+                alarm = {}
 
             if metric_alarm and not alarm.get(metric_name):
                 alarm[metric_name] = {"status": metric_alarm, "period": 0}
@@ -212,24 +227,23 @@ def collect_metrics(container_info: dict, metrics: list[dict], alarm: dict):
             else:
                 alarm[metric_name] = {"status": False, "period": 0}
 
-            if alarm[metric_name].get("period") >= metric.get("window", DEFAULT_WINDOW):
-                response = alarm_action(
-                    metric_name, metric_info.get("value"), metric.get("compare")
-                )
+            if alarm[metric_name].get("period") >= metric.window:
+                response = alarm_action(metric, metric_info)
                 if response:
                     alarm[metric_name] = {"status": False, "period": 0}
 
+            metric_info_dict = json.loads(json.dumps(asdict(metric_info)))
             if os.path.exists(METRIC_VALUES_FILENAME):
                 with open(METRIC_VALUES_FILENAME, "r", encoding="utf-8") as f:
                     metric_values = json.load(f)
 
-                metric_values[metric_name].append(metric_info)
+                metric_values[metric_name].append(metric_info_dict)
             else:
                 logging.info(
                     "Creating new JSON file called %s for saving metric values.",
                     METRIC_VALUES_FILENAME,
                 )
-                metric_values = {metric_name: [metric_info]}
+                metric_values = {metric_name: [metric_info_dict]}
 
             # overwrite/create file
             with open(METRIC_VALUES_FILENAME, "w", encoding="utf-8") as f:
@@ -245,12 +259,10 @@ def main():
     parsing_url = f"{CADVISOR_URL}/{CONTAINER_NAME}"
     with urlopen(parsing_url) as u:
         response = u.read()
-
     container_info = json.loads(response)
 
-    with open(METRICS_CONFIG_FILENAME, encoding="utf-8") as f:
-        metrics = json.load(f)
-    metrics = metrics.get("metrics")
+    target_metrics = TargetMetric()
+    metrics = target_metrics.metrics
 
     if os.path.exists(METRIC_VALUES_FILENAME):
         os.remove(METRIC_VALUES_FILENAME)
