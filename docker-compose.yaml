@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  cadvisor:
+    # if you're using Mac M1 (https://github.com/google/cadvisor/issues/2838#issuecomment-1248819708)
+    # If not just exclude the platform section and use the latest image
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    platform: linux/arm64
+    container_name: cadvisor
+    ports:
+    - "8080:8080"
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+##  - /var/lib/docker/:/var/lib/docker:ro if you're using linux
+    - /dev/disk/:/dev/disk:ro
+    depends_on:
+    - redis
+    devices:
+    - /dev/kmsg:/dev/kmsg
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+    - "6379:6379"
