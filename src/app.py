@@ -43,8 +43,12 @@ def alarm_action(metric_name: str, upload: bool = False):
             current_desired = response.get("AutoScalingGroups")[0].get(
                 "DesiredCapacity"
             )
-            # TODO: Increase or reduce desired capacity depending on the alarm condition
-            desired_capacity = current_desired + 1
+
+            if condition == "bigger":
+                desired_capacity = current_desired + 1
+            elif current_desired != 0:
+                desired_capacity = current_desired - 1
+
             response = asg_client.set_desired_capacity(
                 AutoScalingGroupName=ASG_NAME,
                 DesiredCapacity=desired_capacity,
@@ -63,7 +67,9 @@ def check_value(container_info: dict, metric: dict):
     """TO-DO"""
     metric_name = metric.get("name")
     metric_threshold = metric.get("threshold")
-    logging.info("Collecting metric %s", metric_name)
+    metric_compare = metric.get("compare")
+
+    logging.info("Collecting metric %s...", metric_name)
     metric_info = {}
     try:
         info = list(container_info.values())[0]
@@ -81,11 +87,17 @@ def check_value(container_info: dict, metric: dict):
             metric_info["alarm"] = False
             metric_info["window"] = metric.get("window", DEFAULT_WINDOW)
             metric_info["timestamp"] = stats.get("timestamp")
+            metric_info["alarm"] = False
 
-            if metric_value >= metric_threshold:
+            if metric_compare == "bigger" and metric_value > metric_threshold:
                 metric_info["alarm"] = True
+            elif metric_compare == "lower" and metric_value < metric_threshold:
+                metric_info["alarm"] = True
+
+            if metric_info["alarm"]:
                 logging.info(
-                    "Metric value over threshold (%s) for metric %s",
+                    "Metric value %s than threshold (%s) for metric %s.",
+                    metric_compare,
                     metric_threshold,
                     metric_name,
                 )

@@ -4,7 +4,8 @@
             "name": "cpu_usage_total",
             "area": "cpu",
             "keys": ["usage", "total"],
-            "threshold": 1,
+            "threshold": 500,
+            "compare": "bigger",
             "window": 3
         }
     ]
